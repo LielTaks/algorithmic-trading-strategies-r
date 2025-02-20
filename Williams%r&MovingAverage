@@ -1,0 +1,104 @@
+###############################################################################
+
+
+
+###############################################################################
+# ARGUMENTS:
+
+# store: see explanation under returned list below
+
+# newRowList: this is a list of single-row OHLCV xts objects, one for each series
+
+# currentPos: this is the current position (so if one wants to close all
+# positions one could set marketOrders as -currentPos)
+
+# params: these are the strategy params.
+###############################################################################
+
+maxRows <- 3100 # Initializes matrix to store closing prices
+getOrders <- function(store, newRowList, currentPos, info, params) {
+
+  allzero <- rep(0, length(newRowList))  # used for initializing vectors
+  marketOrders <- -currentPos  # Reset current positions to neutral
+
+  # Initialize store if first run
+  if (is.null(store)) store <- initStore(newRowList, params$series)
+  store <- updateStore(store, newRowList, params$series)
+
+  # Get the latest closing prices
+  latestPrices <- sapply(1:length(newRowList), function(i) as.numeric(newRowList[[i]]$Close))
+
+  # Calculate volatility-adjusted position sizes inversely proportional to price and volatility
+  largestPrice <- max(latestPrices)
+  positionSizes <- round(largestPrice / latestPrices)  # Inversely proportional to price
+
+  # Calculate recent volatility (e.g., standard deviation over 20 days)
+  volatilities <- sapply(1:length(newRowList), function(i) {
+    if (store$iter > 20) {
+      sd(store$cl[(store$iter - 19):store$iter, i])
+    } else {
+      1  # equal 1 if data is insufficient
+    }
+  })
+
+  # Adjust position sizes by inverse volatility
+  positionSizes <- round(positionSizes / volatilities)
+
+  # Position size multiplier to increase return potential
+  estCostToBuy <- sum(positionSizes * latestPrices)
+  target <- 900000  # Try to spend this much
+  multiplier <- target / estCostToBuy
+  positionSizes <- round(multiplier * positionSizes)
+
+  # Main trading logic
+  if (store$iter > max(params$lookback, params$williamsLookback)) {
+    startIndexMA <- store$iter - params$lookback
+    startIndexWilliams <- store$iter - params$williamsLookback
+    pos <- allzero  # Initialize positions
+
+    for (i in seq_along(params$series)) {
+      cl <- newRowList[[params$series[i]]]$Close
+      highs <- max(store$cl[startIndexWilliams:store$iter, i])  # Highs for Williams %R
+      lows <- min(store$cl[startIndexWilliams:store$iter, i])   # Lows for Williams %R
+
+      # Avoid division by zero in Williams %R calculation
+      if (highs != lows) {
+        williamsR <- -100 * (highs - cl) / (highs - lows)
+      } else {
+        williamsR <- 0
+      }
+
+      # Calculate moving average
+      movingAvg <- mean(store$cl[startIndexMA:store$iter, i])
+
+      # Main strategy logic with modified position sizes
+      if (cl > movingAvg) {
+        if (williamsR < -80) {  # Oversold threshold (-80)
+          # Increase position size at the same proportion as the oversold level
+          signalStrength <- abs(williamsR + 80) / 20  # Scale based on signal strength
+          pos[i] <- round(signalStrength * positionSizes[i])  # Long position
+        }
+      } else if (cl < movingAvg) {
+        if (williamsR > -20) {  # Overbought threshold (-20)
+          # Increase position size at the same proportion as the overbought level
+          signalStrength <- abs(williamsR - 20) / 20
+          pos[i] <- -round(signalStrength * positionSizes[i])  # Short position
+        }
+      }
+    }
+
+    # Update only if there is a significant change from current positions
+    if (sum(abs(pos - currentPos)) > 0.05 * sum(abs(currentPos))) {
+      marketOrders <- marketOrders + pos  # Adjust market orders
+    }
+  }
+
+  # Replace any N/A values in marketOrders with zeroes to avoid errors
+  marketOrders[is.na(marketOrders)] <- 0
+
+  return(list(store=store, marketOrders=marketOrders,
+              limitOrders1=allzero,
+              limitPrices1=allzero,
+              limitOrders2=allzero,
+              limitPrices2=allzero))
+}
