@@ -1,0 +1,162 @@
+maxRows <- 3100 # used to initialize a matrix to store closing prices
+
+
+getOrders <- function(store, newRowList, currentPos, info, params) {
+  
+  allzero  <- rep(0, length(newRowList)) # used for initializing vectors
+  
+  
+  positions <- allzero
+  limitOrders1=allzero
+  limitOrders2=allzero
+  limitPrices1=allzero
+  limitPrices2=allzero
+  
+  if (is.null(store)) {
+    store <- initStore(newRowList, params$series)
+    store$highestSinceEntry <- matrix(0, nrow=maxRows, ncol=length(params$series))  # Track highest price since entry
+    
+  }
+    
+  store <- updateStore(store, newRowList, params$series)
+ 
+  iter <- store$iter
+  
+  marketOrders <- -currentPos
+  ####
+
+  # Get the latest closing prices
+  latestPrices <- sapply(1:length(newRowList), function(i) as.numeric(newRowList[[i]]$Close))
+  
+  # Get position sizes inversely proportional to price
+  largestPrice <- max(latestPrices)
+  positionSizes <- round(largestPrice / latestPrices)  # Inversely proportional to price
+  
+  # Calculate recent volatility (e.g., standard deviation over 20 days)
+  volatilities <- sapply(1:length(newRowList), function(i) {
+    if (store$iter > 20) {
+      sd(store$cl[(store$iter - 19):store$iter, i])
+    } else {
+      1  # equal 1 if data is insufficient
+    }
+  })
+  
+  # Adjust position sizes by inverse volatility
+  positionSizes <- round(positionSizes / volatilities)
+  
+  
+  # Estimate cost to buy
+  estCostToBuy <- sum(positionSizes * latestPrices)
+  
+  
+  # Scale position sizes to hit the £900,000 target
+  targetBudget <- 900000
+  multiplier <- targetBudget / estCostToBuy
+  positionSizes <- round(positionSizes * multiplier)  # Scaled position sizes
+  # estCostToBuy <- sum(positionSizes * latestPrices)
+  highestPrice <- 0
+    
+  
+  if(params$lookback <store$iter) {
+    firstInd <- store$iter - params$lookback
+    for (i in 1: length(params$series)) {
+      close <- newRowList[[params$series[i]]]$Close
+      
+      ma <- SMA(store$cl[max(1, iter - params$maPeriod + 1):iter, params$series[i]], n=params$maPeriod)
+      currentMA <- tail(ma, 1)
+     
+      rsi <- last(RSI(store$cl[(iter - params$lookback):iter, params$series[i]], n=params$lookback))
+      
+      
+      if (close > currentMA && rsi > 70) { # Long
+        positions[params$series[i]] <- (round(positionSizes[params$series[i]]*0.5))
+        limitOrders1[params$series[i]] <- (round(positionSizes[params$series[i]]*0.25))
+        limitOrders2[params$series[i]] <- -(round(positionSizes[params$series[i]]*0.25))
+        limitPrices1[params$series[i]] <- currentMA*0.95
+        limitPrices2[params$series[i]] <- currentMA*1.1
+        if (highestPrice < close) {
+        highestPrice <- close  # Update highest price since entry
+        }
+        
+      } else if (close < currentMA && rsi < 30) { # Short
+        positions[params$series[i]] <- -(round(positionSizes[params$series[i]]*0.5))
+        limitOrders1[params$series[i]] <- -(round(positionSizes[params$series[i]]*0.25))
+        limitOrders2[params$series[i]] <- (round(positionSizes[params$series[i]]*0.25))
+        limitPrices1[params$series[i]] <- currentMA*1.05
+        limitPrices2[params$series[i]] <- currentMA*0.9
+        if (highestPrice < close) {
+          highestPrice <- close  # Update highest price since entry
+        }
+      }
+      
+      # Trailing stop-loss logic (updated)
+      if (currentPos[i] != 0) {  # If there is an open position
+        if (currentPos[i] > 0) {  # Long position
+          if (close < 0.90 * highestPrice) {  # Exit if price drops below 90% of highest price
+            positions[i] <- -currentPos[i]  # Close the position
+            limitOrders1[i] <- 0
+            limitOrders1[i] <- 0
+          }
+        } else if (currentPos[i] < 0) {  # Short position
+          if (close > 1.10 * highestPrice) {  # Exit if price rises above 110% of lowest price
+            positions[i] <- -currentPos[i]  # Close the position
+            limitOrders1[i] <- 0
+            limitOrders1[i] <- 0
+            }
+        }
+      }
+      
+    }
+    
+  }
+  
+  
+  
+  maxDrawdown <- 0.20  # Stop trading if drawdown exceeds 20%
+  if (sum(abs(positions)) > 0 && sum(abs(currentPos)) / sum(abs(positions)) > maxDrawdown) {
+    positions <- allzero  # Close positions
+    limitOrders1 <- allzero
+    limitOrders2 <- allzero
+  }
+  else {
+    marketOrders <- marketOrders + positions
+  }
+  
+    return(list(store=store, marketOrders=marketOrders,
+                limitOrders1=limitOrders1, limitPrices1=limitPrices1,
+                limitOrders2=limitOrders2, limitPrices2=limitPrices2))
+}  
+
+
+checkParams <- function(params) {
+  if (!"lookback" %in% names(params))
+    stop("Parameter lookback not defined for strategy Momentum1")
+  if (!"maPeriod" %in% names(params))
+    stop("Parameter maPeriod not defined for strategy Momentum1")
+}
+
+
+initClStore <- function(newRowList, series) {
+  clStore <- matrix(0, nrow = maxRows, ncol = length(newRowList))
+  return(clStore)
+}
+
+
+updateClStore <- function(clStore, newRowList, series, iter) {
+  for (i in 1:length(series))
+    clStore[iter, i] <- as.numeric(newRowList[[series[i]]]$Close)
+  return(clStore)
+}
+
+
+initStore <- function(newRowList, series) {
+  return(list(iter = 0, cl = initClStore(newRowList, series)))
+}
+
+
+updateStore <- function(store, newRowList, series) {
+  store$iter <- store$iter + 1
+  store$cl <- updateClStore(store$cl, newRowList, series, store$iter)
+  return(store)
+}
+

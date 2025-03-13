@@ -1,28 +1,19 @@
-###############################################################################
-
-
-
-###############################################################################
-# ARGUMENTS:
-
-# store: see explanation under returned list below
-
-# newRowList: this is a list of single-row OHLCV xts objects, one for each series
-
-# currentPos: this is the current position (so if one wants to close all
-# positions one could set marketOrders as -currentPos)
-
-# params: these are the strategy params.
-###############################################################################
-
 maxRows <- 3100 # Initializes matrix to store closing prices
+
 getOrders <- function(store, newRowList, currentPos, info, params) {
 
   allzero <- rep(0, length(newRowList))  # used for initializing vectors
   marketOrders <- -currentPos  # Reset current positions to neutral
+  limitOrders1=allzero
+  limitPrices1=allzero
+  limitOrders2=allzero
+  limitPrices2=allzero
 
   # Initialize store if first run
-  if (is.null(store)) store <- initStore(newRowList, params$series)
+  if (is.null(store)) {
+    store <- initStore(newRowList, params$series)
+    store$highestSinceEntry <- matrix(0, nrow=maxRows, ncol=length(params$series))  # Track highest price since entry
+  }
   store <- updateStore(store, newRowList, params$series)
 
   # Get the latest closing prices
@@ -71,20 +62,49 @@ getOrders <- function(store, newRowList, currentPos, info, params) {
       # Calculate moving average
       movingAvg <- mean(store$cl[startIndexMA:store$iter, i])
 
-      # Main strategy logic with modified position sizes
+      # Main strategy logic
       if (cl > movingAvg) {
         if (williamsR < -80) {  # Oversold threshold (-80)
           # Increase position size at the same proportion as the oversold level
           signalStrength <- abs(williamsR + 80) / 20  # Scale based on signal strength
-          pos[i] <- round(signalStrength * positionSizes[i])  # Long position
+          pos[i] <- round(round(signalStrength * positionSizes[i])* 0.6) # Long position
+          limitOrders1[i] <- round(round(signalStrength * positionSizes[i])* 0.2)
+          limitOrders2[i] <- -round(round(signalStrength * positionSizes[i])* 0.2)
+          limitPrices1[i] <- movingAvg * 0.5
+          limitPrices2[i] <- movingAvg * 1.4
+          store$highestSinceEntry[store$iter, i] <- cl   # Update highest price since entry
         }
       } else if (cl < movingAvg) {
         if (williamsR > -20) {  # Overbought threshold (-20)
           # Increase position size at the same proportion as the overbought level
           signalStrength <- abs(williamsR - 20) / 20
-          pos[i] <- -round(signalStrength * positionSizes[i])  # Short position
+          pos[i] <- -round(round(signalStrength * positionSizes[i])* 0.6)  # Short position
+          limitOrders1[i] <- round(round(signalStrength * positionSizes[i])* 0.2)
+          limitOrders2[i] <- -round(round(signalStrength * positionSizes[i])* 0.2)
+          limitPrices1[i] <- movingAvg * 0.7
+          limitPrices2[i] <- movingAvg * 1.2
+          store$highestSinceEntry[store$iter, i] <- cl  # Update highest price since entry
         }
       }
+
+      # Trailing stop-loss logic (updated)
+      if (currentPos[i] != 0) {  # If there is an open position
+        if (currentPos[i] > 0) {  # Long position
+          if (cl < 0.90 * store$highestSinceEntry[store$iter, i]) {  # Exit if price drops below 90% of highest price
+            pos[i] <- -currentPos[i]  # Close the position
+          }
+        } else if (currentPos[i] < 0) {  # Short position
+          if (cl > 1.10 * store$highestSinceEntry[store$iter, i]) {  # Exit if price rises above 110% of lowest price
+            pos[i] <- -currentPos[i]  # Close the position
+          }
+        }
+      }
+    }
+
+    # Drawdown monitoring
+    maxDrawdown <- 0.20  # Stop trading if drawdown exceeds 20%
+    if (sum(abs(pos)) > 0 && sum(abs(currentPos)) / sum(abs(pos)) > maxDrawdown) {
+      pos <- allzero  # Close all positions
     }
 
     # Update only if there is a significant change from current positions
@@ -97,8 +117,8 @@ getOrders <- function(store, newRowList, currentPos, info, params) {
   marketOrders[is.na(marketOrders)] <- 0
 
   return(list(store=store, marketOrders=marketOrders,
-              limitOrders1=allzero,
-              limitPrices1=allzero,
-              limitOrders2=allzero,
-              limitPrices2=allzero))
+              limitOrders1=limitOrders1,
+              limitPrices1=limitPrices1,
+              limitOrders2=limitOrders2,
+              limitPrices2=limitPrices2))
 }
