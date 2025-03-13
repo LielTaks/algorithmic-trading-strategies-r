@@ -3,25 +3,41 @@ maxRows <- 3100
 getOrders <- function(store, newRowList, currentPos, info, params) { 
   allzero <- rep(0,length(newRowList))
   positions <- allzero
+  limitOrders1=allzero
+  limitPrices1=allzero
+  limitOrders2=allzero
+  limitPrices2=allzero
   
   if (is.null(store)) store <- initStore(newRowList,params$series)
   store <- updateStore(store, newRowList, params$series)
   marketOrders <- -currentPos
+  params$posSizes <- posSizes_x4(dataList,params$series)
+  
 
   if(params$lookback < store$iter) {
     firstInd <- store$iter - params$lookback
     for (i in 1:length(params$series)) {
       close <- newRowList[[params$series[i]]]$Close
+      
       BolBands <- last(BBands(store$cl[firstInd:store$iter,i],n=params$lookback,sd=params$sdParam))
       
       if(close < BolBands[,"dn"] || BolBands[,"pctB"] < 0.05) {
-        positions[params$series[i]] <- -(params$posSizes[params$series[i]])
+        positions[params$series[i]] <- -round(params$posSizes[params$series[i]]*0.5)
+        limitOrders1[params$series[i]] <- round(params$posSizes[params$series[i]]*0.25)
+        limitOrders2[params$series[i]] <- -(round(params$posSizes[params$series[i]]*0.25))
+        limitPrices1[params$series[i]] <- BolBands[,"dn"]-(BolBands[,"mavg"]-BolBands[,"dn"])*4
+        limitPrices2[params$series[i]] <- close+(BolBands[,"up"]-BolBands[,"mavg"])
       } else if (close > BolBands[,"up"] || BolBands[,"pctB"] > 0.95) {
-        positions[params$series[i]] <- params$posSizes[params$series[i]]
+        positions[params$series[i]] <- round(params$posSizes[params$series[i]]*0.5)
+          limitOrders1[params$series[i]] <- round(params$posSizes[params$series[i]]*0.25)
+          limitOrders2[params$series[i]] <- -round(params$posSizes[params$series[i]]*0.25)
+          limitPrices1[params$series[i]] <- BolBands[,"dn"]-(BolBands[,"mavg"]-BolBands[,"dn"])*3
+          limitPrices2[params$series[i]] <- close+(BolBands[,"up"]-BolBands[,"mavg"])*2
+        
+        
       }
     }
   }
-  
   marketOrders <- marketOrders + positions
       
 
