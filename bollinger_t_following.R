@@ -8,10 +8,37 @@ getOrders <- function(store, newRowList, currentPos, info, params) {
   limitOrders2=allzero
   limitPrices2=allzero
   
-  if (is.null(store)) store <- initStore(newRowList,params$series)
+  if (is.null(store)) {
+    store <- initStore(newRowList,params$series)
+    store$highestSinceEntry <- matrix(0,nrow=maxRows,ncol=length(params$series))
+  } 
   store <- updateStore(store, newRowList, params$series)
   marketOrders <- -currentPos
-  params$posSizes <- posSizes_x4(dataList,params$series)
+  latestPrices <- sapply(1:length(newRowList), function(i) as.numeric(newRowList[[i]]$Close))
+  
+  # Calculate volatility-adjusted position sizes inversely proportional to price and volatility
+  largestPrice <- max(latestPrices)
+  params$posSizes <- round(largestPrice / latestPrices)  # Inversely proportional to price
+  
+  # Calculate recent volatility (e.g., standard deviation over 20 days)
+  volatilities <- sapply(1:length(newRowList), function(i) {
+    if (store$iter > 20) {
+      sd(store$cl[(store$iter - 19):store$iter, i])
+    } else {
+      1  # equal 1 if data is insufficient
+    }
+  })
+  
+  # Adjust position sizes by inverse volatility
+  params$posSizes <- round(params$posSizes / volatilities)
+
+  
+  # Position size multiplier to increase return potential
+  estCostToBuy <- sum(params$posSizes * latestPrices)
+  target <- info$balance  # Try to spend this much
+  
+  multiplier <- target / estCostToBuy
+  params$posSizes <- round(multiplier * params$posSizes)
   
 
   if(params$lookback < store$iter) {
@@ -27,94 +54,48 @@ getOrders <- function(store, newRowList, currentPos, info, params) {
         limitOrders2[params$series[i]] <- -(round(params$posSizes[params$series[i]]*0.25))
         limitPrices1[params$series[i]] <- BolBands[,"dn"]-(BolBands[,"mavg"]-BolBands[,"dn"])*4
         limitPrices2[params$series[i]] <- close+(BolBands[,"up"]-BolBands[,"mavg"])
+        store$highestSinceEntry[store$iter, i] <- close
       } else if (close > BolBands[,"up"] || BolBands[,"pctB"] > 0.95) {
         positions[params$series[i]] <- round(params$posSizes[params$series[i]]*0.5)
-          limitOrders1[params$series[i]] <- round(params$posSizes[params$series[i]]*0.25)
-          limitOrders2[params$series[i]] <- -round(params$posSizes[params$series[i]]*0.25)
-          limitPrices1[params$series[i]] <- BolBands[,"dn"]-(BolBands[,"mavg"]-BolBands[,"dn"])*3
-          limitPrices2[params$series[i]] <- close+(BolBands[,"up"]-BolBands[,"mavg"])*2
-        
-        
+        limitOrders1[params$series[i]] <- round(params$posSizes[params$series[i]]*0.25)
+        limitOrders2[params$series[i]] <- -round(params$posSizes[params$series[i]]*0.25)
+        limitPrices1[params$series[i]] <- BolBands[,"dn"]-(BolBands[,"mavg"]-BolBands[,"dn"])*3
+        limitPrices2[params$series[i]] <- close+(BolBands[,"up"]-BolBands[,"mavg"])*2
+        store$highestSinceEntry[store$iter, i] <- close
+      }
+      
+      if (currentPos[i] != 0) {  # If there is an open position
+        if (currentPos[i] > 0) {  # Long position
+          if (close < 0.90 * store$highestSinceEntry[store$iter, i]) {  # Exit if price drops below 90% of highest price
+            positions[i] <- -currentPos[i]  # Close the position
+            limitOrders1[params$series[i]] <- 0
+            limitOrders2[params$series[i]] <- 0
+            }
+        } else if (currentPos[i] < 0) {  # Short position
+          if (close > 1.10 * store$highestSinceEntry[store$iter, i]) {  # Exit if price rises above 110% of lowest price
+            positions[i] <- -currentPos[i]  # Close the position
+            limitOrders1[params$series[i]] <- 0
+            limitOrders2[params$series[i]] <- 0
+          }
+        }
       }
     }
-  }
-  marketOrders <- marketOrders + positions
-      
+      maxDrawdown <- 0.26  # Stop trading if drawdown exceeds 20%
+      if (sum(abs(positions)) > 0 && sum(abs(currentPos)) / sum(abs(positions)) > maxDrawdown) {
+        marketOrders <- allzero  # Close all positions
+        limitOrders1 <- allzero
+        limitOrders2 <- allzero
+      } else {
+        marketOrders <- marketOrders + positions
+      }
+    }
+
+  
+  
 
       return(list(store=store,marketOrders=marketOrders,
-                  limitOrders1=allzero,limitPrices1=allzero,
-                  limitOrders2=allzero,limitPrices2=allzero))
-}
-
-posSizes_x4 <- function(rList,s) {
-  #rList <- lapply(rList, function(x) x$Open)
-  spreads <- lapply(rList, function(x) diff(x$High-x$Low))
-  #simple_ret <- vector(mode = "list",length = 10)
-  #simple_ret <- lapply
-  opens <- sapply(rList, function(x) x$Open[1])
-  absSpreads <- lapply(spreads, abs)
-  meanAbsSpreads <- sapply(absSpreads, mean, na.rm = TRUE)
-  largestSpread <- sapply(absSpreads,max,na.rm = TRUE)
-  AccLargestSpread <- max(largestSpread)
-  positionSizes <- round(AccLargestSpread/((meanAbsSpreads)))
-  estCost <- sum(positionSizes * opens)
-  budget <- 900000
-  multiplier <- budget/estCost
-  positionSizes <- round(positionSizes * multiplier)
-  
-  return(positionSizes)
-  
-}
-
-posSizez <- function(rList) {
-  rList <- lapply(rList, function(x) x$Open)
-  first_opens <- sapply(rList, function(x) x$Open[1])
-  simple_ret <- vector(mode = "list",length = length(rList))
-  for (i in 1:length(rList)) {
-    simple_ret[[i]] <- rep(0,nrow(rList[[i]]))
-  }
-  opens <- lapply(rList, function(x) as.numeric(x))
-  for (i in 1:length(simple_ret)) {
-    for (k in 2:length(opens[[i]])) {
-      simple_ret[[i]][k] <- (opens[[i]][k]-opens[[i]][k-1])/opens[[i]][k-1]
-      simple_ret[[i]][k] <- simple_ret[[i]][k] +1
-    }
-    simple_ret[[i]] <- simple_ret[[i]][2:length(simple_ret[[1]])]
-    
-  }
-  cum_ret <- sapply(simple_ret,function(x) prod(x)-1)
-  for (i in 1:length(cum_ret)) {
-    if(cum_ret[i]<0) {
-      cum_ret[i] <- 1
-    } 
-  }
-  cum_ret <- cum_ret*100
-  positionSizes <- round(cum_ret)
-  estCost <- sum(positionSizes * first_opens)
-  budget <- 900000
-  multiplier <- budget/estCost
-  positionSizes <- round(positionSizes * multiplier)
-  
-  
-  return(positionSizes)
-}
-
-initClStore  <- function(newRowList,series) {
-  clStore <- matrix(0,nrow=maxRows,ncol=length(series))
-  return(clStore)
-}
-updateClStore <- function(clStore, newRowList, series, iter) {
-  for (i in 1:length(series))
-    clStore[iter,i] <- as.numeric(newRowList[[series[i]]]$Close)
-  return(clStore)
-}
-initStore <- function(newRowList,series) {
-  return(list(iter=0,cl=initClStore(newRowList,series)))
-}
-updateStore <- function(store, newRowList, series) {
-  store$iter <- store$iter + 1
-  store$cl <- updateClStore(store$cl,newRowList,series,store$iter) 
-  return(store)
+                  limitOrders1=limitOrders1,limitPrices1=limitPrices1,
+                  limitOrders2=limitOrders2,limitPrices2=limitPrices2))
 }
 
   
