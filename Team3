@@ -57,76 +57,78 @@ getOrders <- function(store, newRowList, currentPos, info, params) {
     
 
 
-    for (i in 1:10) {
+    for (i in 1:length(params$series)) {
       
-    if(i==1){
+      if(i==1){
       
-    if(params$lookbackrsi <store$iter) {
-    firstInd <- store$iter - params$lookbackrsi
-      close <- newRowList[[params$series[i]]]$Close
+        if(params$lookbackrsi <store$iter) {
+          firstInd <- store$iter - params$lookbackrsi
+        close <- newRowList[[params$series[i]]]$Close
       
-      ma <- SMA(store$cl[max(1, iter - params$maPeriodrsi + 1):iter, params$series[i]], n=params$maPeriodrsi)
-      currentMA <- tail(ma, 1)
+        ma <- SMA(store$cl[max(1, iter - params$maPeriodrsi + 1):iter, params$series[i]], n=params$maPeriodrsi)
+        currentMA <- tail(ma, 1)
      
-      rsi <- last(RSI(store$cl[(iter - params$lookbackrsi):iter, params$series[i]], n=params$lookbackrsi))
+        rsi <- last(RSI(store$cl[(iter - params$lookbackrsi):iter, params$series[i]], n=params$lookbackrsi))
       
       
-      if (close > currentMA && rsi > 70) { # Long
-        positions[params$series[i]] <- (round(positionSizes[params$series[i]]*0.5))
-        limitOrders1[params$series[i]] <- (round(positionSizes[params$series[i]]*0.25))
-        limitOrders2[params$series[i]] <- -(round(positionSizes[params$series[i]]*0.25))
-        limitPrices1[params$series[i]] <- currentMA*1
-        limitPrices2[params$series[i]] <- currentMA*1.15
-        if (highestPrice < close) {
-          highestPrice <- close  # Update highest price since entry
-        }
-        #store$highestSinceEntry[store$iter, i] <- close   # Update highest price since entry
+        if (close > currentMA && rsi > 70) { # Long
+          positions[params$series[i]] <- (round(positionSizes[params$series[i]]*0.5))
+          limitOrders1[params$series[i]] <- (round(positionSizes[params$series[i]]*0.25))
+          limitOrders2[params$series[i]] <- -(round(positionSizes[params$series[i]]*0.25))
+          limitPrices1[params$series[i]] <- currentMA*1
+          limitPrices2[params$series[i]] <- currentMA*1.15
+          
+          if (highestPrice < close) {
+            highestPrice <- close  # Update highest price since entry
+          }
+          #store$highestSinceEntry[store$iter, i] <- close   # Update highest price since entry
         
         
-      } else if (close < currentMA && rsi < 30) { # Short
-        positions[params$series[i]] <- -(round(positionSizes[params$series[i]]*0.5))
-        limitOrders1[params$series[i]] <- -(round(positionSizes[params$series[i]]*0.25))
-        limitOrders2[params$series[i]] <- (round(positionSizes[params$series[i]]*0.25))
-        limitPrices1[params$series[i]] <- currentMA*1
-        limitPrices2[params$series[i]] <- currentMA*0.85
-        if (highestPrice < close) {
-          highestPrice <- close  # Update highest price since entry
-        }
-        #store$highestSinceEntry[store$iter, i] <- close   # Update highest price since entry
-        
+        } else if (close < currentMA && rsi < 30) { # Short
+          positions[params$series[i]] <- -(round(positionSizes[params$series[i]]*0.5))
+          limitOrders1[params$series[i]] <- -(round(positionSizes[params$series[i]]*0.25))
+          limitOrders2[params$series[i]] <- (round(positionSizes[params$series[i]]*0.25))
+          limitPrices1[params$series[i]] <- currentMA*1
+          limitPrices2[params$series[i]] <- currentMA*0.85
+          if (highestPrice < close) {
+            highestPrice <- close  # Update highest price since entry
+          }
+          #store$highestSinceEntry[store$iter, i] <- close   # Update highest price since entry
         }
       
-      # Trailing stop-loss logic (updated)
-      if (currentPos[i] != 0) {  # If there is an open position
-        if (currentPos[i] > 0) {  # Long position
-          if (close < 0.90 * highestPrice) {  # Exit if price drops below 90% of highest price
-            positions[i] <- -currentPos[i]  # Close the position
-            limitOrders1[i] <- 0
-            limitOrders1[i] <- 0
+        # Trailing stop-loss logic (updated)
+        if (currentPos[i] != 0) {  # If there is an open position
+          if (currentPos[i] > 0) {  # Long position
+            if (close < 0.90 * highestPrice) {  # Exit if price drops below 90% of highest price
+              positions[i] <- -currentPos[i]  # Close the position
+              limitOrders1[i] <- 0
+              limitOrders1[i] <- 0
+            }
+          } else if (currentPos[i] < 0) {  # Short position
+            if (close > 1.10 * highestPrice) {  # Exit if price rises above 110% of lowest price
+              positions[i] <- -currentPos[i]  # Close the position
+              limitOrders1[i] <- 0
+              limitOrders1[i] <- 0
+            }
+            maxDrawdown <- 0.20  # Stop trading if drawdown exceeds 20%
+            if (sum(abs(positions)) > 0 && sum(abs(currentPos)) / sum(abs(positions)) > maxDrawdown) {
+              positions <- allzero  # Close positions
+              limitOrders1 <- allzero
+              limitOrders2 <- allzero
+            }
+            else {
+              marketOrders <- marketOrders + positions
+            }
           }
-        } else if (currentPos[i] < 0) {  # Short position
-          if (close > 1.10 * highestPrice) {  # Exit if price rises above 110% of lowest price
-            positions[i] <- -currentPos[i]  # Close the position
-            limitOrders1[i] <- 0
-            limitOrders1[i] <- 0
-          }
-          maxDrawdown <- 0.20  # Stop trading if drawdown exceeds 20%
-          if (sum(abs(positions)) > 0 && sum(abs(currentPos)) / sum(abs(positions)) > maxDrawdown) {
-            positions <- allzero  # Close positions
-            limitOrders1 <- allzero
-            limitOrders2 <- allzero
-          }
-          else {
-            marketOrders <- marketOrders + positions
-          }
+        }
         }
       }
-    }
+      
       if(i==2 || i==9 || i==10){
         # Main trading logic
         if (store$iter > max(params$lookbackWR, params$williamsLookbackWR)) {
           startIndexMA <- store$iter - params$lookbackWR
-          startIndexWilliams <- store$iter - params$williamsLookbackWR
+          startIndexWilliams <- store$iter - params$williamsLookback
           pos <- allzero  # Initialize positions
           
           for (i in seq_along(params$series)) {
@@ -246,7 +248,7 @@ getOrders <- function(store, newRowList, currentPos, info, params) {
         }
     }
     
-  }
+  
 
 
   
