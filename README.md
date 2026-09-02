@@ -89,12 +89,16 @@ The scripts can be used as starting points for comparing indicator-based strateg
 
 This repository is for educational and research purposes only. It does not provide financial advice, and the strategies should not be used for live trading without independent validation and appropriate risk controls. Past performance does not guarantee future results.
 
-## Author
+## Authors
 
+**Liel Takawira**
 **Oluwatimilehin Tomoloju**
+**Dewi Townley**
 
+- GitHub: [@LielTaks](https://github.com/LielTaks)
 - GitHub: [@oluwatimilehintomoloju](https://github.com/oluwatimilehintomoloju)
-- Portfolio: [YOUR-PORTFOLIO-URL](https://your-portfolio.example)
+- GitHub: [@DewiTownley](https://github.com/DewiTownley)
+
 
 ## Acknowledgements
 
