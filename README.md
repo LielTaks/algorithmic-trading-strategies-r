@@ -91,8 +91,8 @@ This repository is for educational and research purposes only. It does not provi
 
 ## Authors
 
-**Liel Takawira**
-**Oluwatimilehin Tomoloju**
+**Liel Takawira**, 
+**Oluwatimilehin Tomoloju**, 
 **Dewi Townley**
 
 - GitHub: [@LielTaks](https://github.com/LielTaks)
